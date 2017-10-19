@@ -102,16 +102,16 @@ class ALU
                switch(ALUOP.to_ulong())
                {
                  //R-types
-                 case ADDU: ALUresult = oprand1.to_ulong() + oprand2.to_ulong();//addu
-                 case SUBU: ALUresult = oprand1.to_ulong() - oprand2.to_ulong();//subu
-                 case AND: ALUresult = oprand1.to_ulong() & oprand2.to_ulong();//and
-                 case OR: ALUresult = oprand1.to_ulong() | oprand2.to_ulong();//or
-                 case NOR: ALUresult = ~(int)oprand1.to_ulong() | ~(int)oprand2.to_ulong();//nor
+                 case ADDU: ALUresult = oprand1.to_ulong() + oprand2.to_ulong(); break;//addu
+                 case SUBU: ALUresult = oprand1.to_ulong() - oprand2.to_ulong(); break;//subu
+                 case AND: ALUresult = oprand1.to_ulong() & oprand2.to_ulong(); break;//and
+                 case OR: ALUresult = oprand1.to_ulong() | oprand2.to_ulong(); break;//or
+                 case NOR: ALUresult = ~(int)oprand1.to_ulong() | ~(int)oprand2.to_ulong(); break;//nor
                  //I-types
                  //the result of SignExtension comes from oprand2
-                 case 0x9: ALUresult = ALUresult = (int)oprand1.to_ulong() + (int)oprand2.to_ulong();//addiu
+                 case 0x9: ALUresult = ALUresult = (int)oprand1.to_ulong() + (int)oprand2.to_ulong(); break;//addiu
                  //J-types and branch
-                 default: ALUresult = NULL;//branch, jump, halt
+                 default: ALUresult = NULL;//branch, jump, halt dont' care
                }
                return ALUresult;
              }
@@ -184,7 +184,7 @@ class DataMem
           }  
           bitset<32> MemoryAccess (bitset<32> Address, bitset<32> WriteData, bitset<1> readmem, bitset<1> writemem) 
           {
-            // implement by you. fix
+            // implement by you.
             if(writemem == 1) {
               DMem[Address.to_ulong()] = test(WriteData, 31, 23);
               DMem[Address.to_ulong()+1] = test(WriteData, 23, 16);
@@ -229,11 +229,12 @@ void dumpResults(bitset<32> pc, bitset<5> WrRFAdd, bitset<32> WrRFData, bitset<1
 {
                   ofstream fileout;
                   
-                  fileout.open("Results.txt",std::ios_base::app);
+                  fileout.open("Results.txt",std::ofstream::app);
                   if (fileout.is_open())
                   {
-                    
-                  fileout <<pc<<' '<<WrRFAdd<<' '<<WrRFData<<' '<<RFWrEn<<' '<<WrMemAdd<<' '<<WrMemData<<' '<<WrMemEn << endl;
+                  
+                  fileout <<"pc"<<pc<<"\n"<<"WrRFAdd"<<WrRFAdd<<"\n"<<"WrRFData"<<WrRFData<<"\n"<<"RFWrEn"<<RFWrEn<<"\n"<<"WrMemAdd"<<WrMemAdd<<"\n"
+                    <<"WrMemData"<<WrMemData<<"\n"<<"WrMemEn"<<WrMemEn<<"\n"<< endl;
                      
                   }
                   else cout<<"Unable to open file";
@@ -271,21 +272,33 @@ class Control{
         this -> RegDst = 0x1;
       }
     }
-    //fix
+  
     void WrtEnableSig(){
-      //this -> WrtEnable = (this->Inst != J) & (this->Inst != BEQ) & (this->Inst != HALT);
+      this -> WrtEnable = ~(isStore() | isBranch() | jType());
+    }
+  
+    bool isStore(){
+      //whether the inst is SW or not
+      return (test(this->Inst, 31, 26) == 0x2B); //SW
+    }
+  
+    bool isBranch(){
+      return (test(this -> Inst,31,26) == 0x4);
+    }
+    bool jType(){
+      return (test(this -> Inst,31,26) == 0x2);
     }
   
     void ALUSrcSig(){
-      this -> ALUSrc = (test(Inst,31,26)==000000);
+      this -> ALUSrc = (test(Inst,31,26)==0x0);
     }
     void ALUOpSig()
     {
       bitset<32> Inst = this -> Inst;
       bitset<3> ALUop = NULL;
-      if ((test(Inst,31,26) == 100011) | (test(Inst,31,26) == 101011)){ //LW or SW
-        ALUop = 001;
-      } else if (test(Inst,31,26)==000000){
+      if ((test(Inst,31,26) == 0x23) | (test(Inst,31,26) == 0x2B)){ //LW or SW
+        ALUop = 0x1;
+      } else if (test(Inst,31,26)==0x0){
         ALUop = test(Inst,2,0);
       } else {
         ALUop = test(Inst,28,26);
@@ -297,24 +310,16 @@ class Control{
     void memToRegSig()
     {
       //whether the inst is LW or not
-      this -> memToReg = (test(this->Inst, 31, 26) == 100011);
+      this -> memToReg = (test(this->Inst, 31, 26) == 0x23); //LW
     }
   
     void memReadSig(){
-      this -> memRead = (test(this->Inst, 31, 26) == 100011);
+      this -> memRead = (test(this->Inst, 31, 26) == 0x23);
     }
   
     void memWriteSig(){
       //whether the inst is SW or not
-      this -> memWrite = (test(this->Inst, 31, 26) == 101011);
-    }
-    /* Branch**********************************************************************/
-    void isBranch(){
-    }
-  
-    /*Jump**********************************************************************/
-    void isJump(){
-      
+      this -> memWrite = (test(this->Inst, 31, 26) == 0x2B); //SW
     }
   
 };
@@ -326,15 +331,16 @@ bitset<5> two_to_one_mux_5(bitset<1> sel, bitset<5> first, bitset<5> second){
   return (sel == 0)? first : second;
 }
 
-//fix
-bitset<32> signExtension(int instr) {
-  int value = (0x0000FFFF & instr);
+bitset<32> signExtension(bitset<16> immediate) {
+  int imm = (int)immediate.to_ulong();
+  int value = (0x0000FFFF & imm);
   int mask = 0x00008000;
-  if (mask & instr) {
+  if (mask & imm) {
     value += 0xFFFF0000;
   }
   return value;
 }
+
 u_long test(bitset<32> in, int start, int end)
 {
   u_long res = 0;
@@ -352,9 +358,13 @@ int main()
   ALU myALU;
   INSMem myInsMem;
   DataMem myDataMem;
+  //stage2
   bitset<32> signExtendImm;
   bitset<32> WrtData;
   bitset<5> WrtReg;
+  //stage3
+  bitset<32> WrMemAdd;
+  bitset<32> WrMemData;
   
   Control* control1 = new Control();
   Control* control2 = new Control();
@@ -368,7 +378,7 @@ int main()
     the pipeline performs instruction fetch (IF). The second stage (Stage2) performs instruction decode/RF read (ID/RF)
    and execute (EX). The third stage (Stage3) performs data memory load/store (MEM) and writes back to the RF (WB).*/
     
-    /*
+    
     //stage 3
     control3->setInst(control2->Inst);
     control3-> memToRegSig();
@@ -376,9 +386,11 @@ int main()
     control3-> memWriteSig();
     control3-> WrtEnableSig();
     control3->RegDstSig();
-    myDataMem.MemoryAccess(myALU.ALUresult, myRF.ReadData2, control3->memRead, control3->memWrite);
+    WrMemAdd = myALU.ALUresult;
+    WrMemData = myRF.ReadData2;
+    myDataMem.MemoryAccess(WrMemAdd, WrMemData, control3->memRead, control3->memWrite);
     //Wr back mux (sel, 0, 1)
-    WrtData = two_to_one_mux_32(control3->memToReg, myALU.ALUresult, myDataMem.readdata);
+    WrtData = two_to_one_mux_32(control3->memToReg, WrMemData, myDataMem.readdata);
     WrtReg = two_to_one_mux_5(control3->RegDst, test(control3->Inst, 15, 11), test(control3->Inst, 20, 16));
     
     //stage 2
@@ -394,21 +406,20 @@ int main()
     //stage 1 (value of instruction)
     newInst = myInsMem.ReadMemory(pc);
     control1->setInst(newInst);
+    cout << "newInst" << newInst <<"\n";//debug
     pc = pc.to_ulong() + 4;
-    i++;*/
+    i++;
     
   
   // At the end of each cycle, fill in the corresponding data into "dumpResults" function to output files.
   // The first dumped pc value should be 0.
-    //dumpResults(pc, 0, WrtData, control3->WrtEnable, , Wrdata , 0);
-    //dumpResults(bitset<32> pc, bitset<5> WrRFAdd, bitset<32> WrRFData, bitset<1> RFWrEn, bitset<32> WrMemAdd, bitset<32> WrMemData, bitset<1> WrMemEn)
+    dumpResults(pc, WrtReg, WrtData, control3->WrtEnable, WrMemAdd, WrMemData, control3->WrtEnable);
+    //dumpResults(bitset<32> pc, bitset<5> WrRFAdd, bitset<32> WrRFData, bitset<1> RFWrEn, bitset<32> WrMemAdd(address), bitset<32> WrMemData, bitset<1> WrMemEn)
     i++;
   }
   
   myRF.OutputRF(); // dump RF;
   myDataMem.OutputDataMem(); // dump data mem
-  testMem();
-  
   i++;
   return 0;
         
@@ -439,9 +450,11 @@ void testRF()
 void testALU()
 {
   ALU alu;
-  //  alu.ALUOperation(0x21, , <#bitset<32> oprand2#>)
-  //  alu.operand1 = 1;
-  //  alu.operand2 = 2;
+  for(int i = 0; i < 10; i++){
+    cout << "i = " << i << "\n";
+    alu.ALUOperation(i,0x0FFFFFFF,0x0);
+    cout << "ALUresult is" << alu.ALUresult << "when ALUOP is " << i << "\n";
+  }
 }
 
 //test I/O of DataMem units
@@ -460,6 +473,11 @@ void testtest(){
   cout << "hey it is" << re;
   bitset<32> tempp = (00000001 << 1) + 00000001;
 std:cout << "test is fucking" << tempp;
+}
+
+void testSignExntension(){
+  cout << signExtension(0x0001) << "\n";
+  cout << signExtension(0x8000) << "\n";
 }
 
 
