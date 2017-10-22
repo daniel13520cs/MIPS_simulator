@@ -5,7 +5,31 @@ SUBU $a0 $at $v0
 AND $a1 $at $v0 //a1 = 5’b00001
 OR $a2 $at $v0
 NOR $a3 $at $v0
+J 0x0000009 // J r0, 9
 
-J 0x0000009
-SW $at 0x0008 $zero
-BEQ $at $a2 0x0002
+
+//fix
+SW $at 0x0008 $zero. /BEQ
+BEQ $at $a2 0x0002 /SW
+
+//fix
+SW r8, r0, 8
+ADDU r0, r0, r0
+ADDU r0, r0, r0
+
+//Notes: $at = r1 , $a0 = r4, $a1 = r5, $a2 = r6
+
+//feng
+Fetching: LW r1, r0, 0 mem 
+Fetching: LW r2, r0, 4
+Fetching: ADDU r3, r1, r2
+Fetching: SUBU r4, r1, r2
+Fetching: AND r5, r1, r2
+Fetching: OR r6, r1, r2
+Fetching: NOR r7, r1, r2
+Fetching: J r0, 9
+Fetching: BEQ r1, r6, 2
+Fetching: SW r8, r0, 8
+Fetching: ADDU r0, r0, r0
+Fetching: ADDU r0, r0, r0
+Cod ended with exit code : 0
