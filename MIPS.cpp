@@ -101,7 +101,7 @@ class ALU
                switch(ALUOP.to_ulong())
                {
                  //R-types
-                 case ADDU: ALUresult = oprand1.to_ulong() + oprand2.to_ulong(); break;//addu
+                 case ADDU: ALUresult = (int)oprand1.to_ulong() + (int)oprand2.to_ulong(); break;//addu
                  case SUBU: ALUresult = oprand1.to_ulong() - oprand2.to_ulong(); break;//subu
                  case AND: ALUresult = oprand1.to_ulong() & oprand2.to_ulong(); break;//and
                  case OR: ALUresult = oprand1.to_ulong() | oprand2.to_ulong(); break;//or
@@ -288,6 +288,10 @@ class Control{
       return (test(this->Inst, 31, 26) == 0x2B); //SW
     }
   
+    bool isLW(){
+      return (test(this->Inst,31,26) == 0x23);
+    }
+  
     bool isBranch(){
       return (test(this -> Inst,31,26) == 0x4); //fix!!!!!!!
     }
@@ -297,7 +301,7 @@ class Control{
     }
   
     void ALUSrcSig(){
-      this -> ALUSrc = (test(this->Inst,31,26)==0x0);
+      this -> ALUSrc = (test(this->Inst,31,26)==0x0) | isBranch();
     }
     void ALUOpSig()
     {
@@ -323,7 +327,7 @@ class Control{
     }
   
     void memReadSig(){
-      this -> memRead = (test(this->Inst, 31, 26) == 0x23);
+      this -> memRead = (test(this->Inst, 31, 26) == 0x23); //LW
     }
   
     void memWriteSig(){
@@ -450,44 +454,46 @@ int main()
       cout << "the memToReg control sig is " << control3->memToReg << "\n";
 
     }
-    //prevent infinite jump instruciton
-    if(!control2->jType()){
+    
+    
       //stage 2**********************************************************************/
-      if(pc.to_ulong() >= 4){
-        /*/ pass in control signals from pipelines*/
-        control2->setInst(newInst); //pass in new instruction from the IF to ID/RF,EXE pipeline
-        control2->ALUOpSig();
-        control2->ALUSrcSig();
+    //prevent infinite jump instruciton
+    if(pc.to_ulong() >= 4){
+      control2->setInst(newInst); //pass in new instruction from the IF to ID/RF,EXE pipeline
+      if(!control2->jType()){
+          /*/ pass in control signals from pipelines*/
+          control2->ALUOpSig();
+          control2->ALUSrcSig();
         
-        control2-> RegDstSig();
-        
-        
-        //decode the instruction                                              //below three signals just updated from the last clock cycle
-        myRF.ReadWrite(test(control2->Inst,25,21), test(control2->Inst,20,16), WrtReg, WrtData, control3-> WrtEnable);
-        //perform operations (R-type => 15,11 I-type => 20, 16)
-        
-        //update WrtReg after writing the register values into RF files for the last instruction
-        WrtReg = two_to_one_mux_5(control2->RegDst, test(control2->Inst, 15, 11), test(control2->Inst, 20, 16));
+          control2-> RegDstSig();
         
         
-      signExtendImm = signExtension((int)test(control2->Inst,15,0));
-      branchAdderResult = adder(pcAdderResult, signExtendImm << 2);
-      jumpAddr = (test(pcAdderResult, 31,28) << 28) + (test(control2->Inst,25,0) << 2) ;
-      aluoperand2 = two_to_one_mux_32(control2->ALUSrc, signExtendImm, myRF.ReadData2); //signImm or rt
+          //decode the instruction                                              //below three signals just updated from the last clock cycle
+          myRF.ReadWrite(test(control2->Inst,25,21), test(control2->Inst,20,16), WrtReg, WrtData, control3-> WrtEnable);
+          //perform operations (R-type => 15,11 I-type => 20, 16)
         
-      myALU.ALUresult = myALU.ALUOperation(control2->ALUOp, myRF.ReadData1, aluoperand2);
+          //update WrtReg after writing the register values into RF files for the last instruction
+          WrtReg = two_to_one_mux_5(control2->RegDst, test(control2->Inst, 15, 11), test(control2->Inst, 20, 16));
         
-
-      control2-> nextPCSig(myALU.ALUresult);
-       //debug
-        //std:: cout << "instr in stage2" << std::hex << "is" << control2->Inst << "\n";
+        
+        signExtendImm = signExtension((int)test(control2->Inst,15,0));
+        branchAdderResult = adder(pcAdderResult, signExtendImm << 2);
+        //jumpAddr = (test(pcAdderResult, 31,28) << 28) + (test(control2->Inst,25,0) << 2) ;
+        aluoperand2 = two_to_one_mux_32(control2->ALUSrc, signExtendImm, myRF.ReadData2); //signImm or rt
+        
+        myALU.ALUresult = myALU.ALUOperation(control2->ALUOp, myRF.ReadData1, aluoperand2);
+        
+      } else {
+        jumpAddr = (test(pcAdderResult, 31,28) << 28) + (test(control2->Inst,25,0) << 2) ;
       }
     }
+    
+    control2-> nextPCSig(myALU.ALUresult);
 
     //stage 1 (value of instruction)**********************************************************************/
     /*/ pass in control signals from pipelines*/
     newInst = myInsMem.ReadMemory(pc);
-    if(i == 7){ break;}
+    if(test(newInst, 31, 26) == 0x3F){ break;}
     //debug
     cout << "cycle" << i <<"  newInst:" << newInst <<"\n";
     //perfrom operations
@@ -497,18 +503,21 @@ int main()
     dumpResults(pc, WrtReg, WrtData, control3->WrtEnable, WrMemAdd, WrMemData, control3->memWrite);
     cout << "signExtenImm = " << signExtendImm << "\n";
     printf("myALU opcode is %d \n", (int)control2->ALUOp.to_ulong());
-    printf("myALU result is %x \n", (int)myALU.ALUresult.to_ulong());
     cout <<" myALU source r1 is "<< myRF.ReadData1 <<"\n";
-    cout << "and" <<" myALU source r2 is "<< aluoperand2 << "\n";
+    cout <<" myALU source r2 is "<< aluoperand2 << "\n";
+    cout <<" myALU result is "<< myALU.ALUresult << "\n";
+    cout <<" myALU source is" << control2->ALUSrc << "\n";
     cout << "and" << " myMemeWrAddr is " << WrMemAdd << "\n";
     cout << "and" <<" myMemWrData is " << WrMemData << "\n";
-    cout << "and" <<" myMemWrEnable is " << control3->WrtEnable << "\n";
+    cout << "and" <<" myMemWrEnable is " << control3->memWrite << "\n";
     cout << "and" <<" myWrReg is " << WrtReg << "\n";
     cout << "and" << " my Wrtback data is" << WrtData << "\n";
+    cout << "and" << " control2->nextPC is " << control2->nextPC << "\n";
     cout<< "\n";
     //dumpResults(bitset<32> pc, bitset<5> WrRFAdd, bitset<32> WrRFData, bitset<1> RFWrEn, bitset<32> WrMemAdd(address),bitset<32> WrMemData, bitset<1> WrMemEn)
 
     pc = three_to_one_mux_32(control2->nextPC, pcAdderResult, jumpAddr, branchAdderResult);
+    printf("and the pc is %d \n", (int)pc.to_ulong());
     i++;
   }
   }
