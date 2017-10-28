@@ -3,14 +3,17 @@
 #include<vector>
 #include<bitset>
 #include<fstream>
-//left task : prevent jump and branch delay slot to update architectural state
+
 #define ADDU 1
 #define SUBU 3
 #define AND 4
 #define OR  5
 #define NOR 7
 
-#define ADDIU 9 //by chihchien
+//by chihchien
+#define ADDIU 9
+#define DEBUGG 0
+
 using namespace std;
 #define MemSize 65536 // memory size, in reality, the memory size should be 2^32, but for this lab, for the space resaon, we keep it as this large number, but the memory is still 32-bit addressable.
 
@@ -31,7 +34,7 @@ using namespace std;
 #define HALT 0x3F*/
 //*******************************************************************/
 
-//test
+//test functions
 void testtest();
 void testRF();
 void testALU();
@@ -101,16 +104,16 @@ class ALU
                switch(ALUOP.to_ulong())
                {
                  //R-types
-                 case ADDU: ALUresult = (int)oprand1.to_ulong() + (int)oprand2.to_ulong(); break;//addu
+                 case ADDU: ALUresult = oprand1.to_ulong() + oprand2.to_ulong(); break;//addu
                  case SUBU: ALUresult = oprand1.to_ulong() - oprand2.to_ulong(); break;//subu
                  case AND: ALUresult = oprand1.to_ulong() & oprand2.to_ulong(); break;//and
                  case OR: ALUresult = oprand1.to_ulong() | oprand2.to_ulong(); break;//or
                  case NOR: ALUresult = ~(oprand1.to_ulong() | oprand2.to_ulong()); break;//nor
                  //I-types
                  //the result of SignExtension comes from oprand2
-                 case 0x9: ALUresult = ALUresult = (int)oprand1.to_ulong() + (int)oprand2.to_ulong(); break;//addiu
+                 case 0x9: ALUresult = ALUresult = oprand1.to_ulong() + oprand2.to_ulong(); break;//addiu
                  //J-types and branch
-                 default: ALUresult = ALUresult;//branch, jump, halt dont' care  fix
+                 default: ALUresult = ALUresult;//branch, jump, halt dont' care
                }
                return ALUresult;
              }
@@ -233,9 +236,12 @@ void dumpResults(bitset<32> pc, bitset<5> WrRFAdd, bitset<32> WrRFData, bitset<1
                   fileout.open("Results.txt",std::ofstream::app);
                   if (fileout.is_open())
                   {
-                  
-                  fileout <<"pc"<<pc<<"\n"<<"WrRFAdd"<<WrRFAdd<<"\n"<<"WrRFData"<<WrRFData<<"\n"<<"RFWrEn"<<RFWrEn<<"\n"<<"WrMemAdd"<<WrMemAdd<<"\n"
-                    <<"WrMemData"<<WrMemData<<"\n"<<"WrMemEn"<<WrMemEn<<"\n"<< endl;
+                    if(DEBUGG){
+                      fileout <<"pc"<<pc<<"\n"<<"WrRFAdd"<<WrRFAdd<<"\n"<<"WrRFData"<<WrRFData<<"\n"<<"RFWrEn"<<RFWrEn<<"\n"<<"WrMemAdd"<<WrMemAdd<<"\n"
+                        <<"WrMemData"<<WrMemData<<"\n"<<"WrMemEn"<<WrMemEn<<"\n"<< endl;
+                    } else {
+                      fileout <<pc<<' '<<WrRFAdd<<' '<<WrRFData<<' '<<RFWrEn<<' '<<WrMemAdd<<' '<<WrMemData<<' '<<WrMemEn << endl;
+                    }
                      
                   }
                   else cout<<"Unable to open file";
@@ -260,7 +266,6 @@ class Control{
   
     bitset<2> nextPC;
     bitset<32> WrMemAdd;
-    bitset<26> jumpAddr;
   
     //IF**********************************************************************/
     void setInst(bitset<32> Inst){
@@ -335,7 +340,6 @@ class Control{
       this -> memWrite = (test(this->Inst, 31, 26) == 0x2B); //SW
     }
   
-  
     void nextPCSig(bitset<32> ALUresult){
       if (isBranch() && ALUresult == 0x0){ //fix
         this->nextPC = 2;
@@ -346,9 +350,6 @@ class Control{
       }
     }
   
-  void createJumpAddr(){
-    jumpAddr = test(this->Inst, 25, 0);
-  }
 };
 
 bitset<32> two_to_one_mux_32(bitset<1> sel, bitset<32> first, bitset<32> second){
@@ -392,13 +393,16 @@ u_long test(bitset<32> in, int start, int end)
 
 int main()
 {
-  bool debug = 0;
   bitset<32> pc=0;
   bitset<32> newInst = 0;
   RF myRF;
   ALU myALU;
   INSMem myInsMem;
   DataMem myDataMem;
+  
+  //initialize
+  bool firstInstDone = false;
+  bool secondInstDone = false;
   
   //stage3 wires
   bitset<32> WrMemAdd;
@@ -422,17 +426,15 @@ int main()
   
   int i = 0;
   
-  if(!debug){
   while (i < 20) //each loop body corresponds to one clock cycle.
   {
     /*The architectural state consists of the Program Counter (PC), the Register File (RF) and the Data Memory (DataMem). control-unit*/
-    /*The first stage (Stage1) of
-    the pipeline performs instruction fetch (IF). The second stage (Stage2) performs instruction decode/RF read (ID/RF)
+    /*The first stage (Stage1) of the pipeline performs instruction fetch (IF). The second stage (Stage2) performs instruction decode/RF read (ID/RF)
    and execute (EX). The third stage (Stage3) performs data memory load/store (MEM) and writes back to the RF (WB).*/
 
-
+    dumpResults(pc, WrtReg, WrtData, control3->WrtEnable, WrMemAdd, WrMemData, control3->memWrite);
     /*stage 3***********************************************************************/
-    if(pc.to_ulong() >= 8){
+    if(secondInstDone){
       /*/ pass in control signals from pipelines*/ //actually passing instructions to create control signals
       control3->setInst(control2->Inst);
       control3-> memToRegSig();
@@ -451,37 +453,35 @@ int main()
     myDataMem.MemoryAccess(myALU.ALUresult, myRF.ReadData2, control3->memRead, control3->memWrite);
     //Wr back mux (sel, 0, 1)
     WrtData = two_to_one_mux_32(control3->memToReg, WrMemAdd, myDataMem.readdata);
-      cout << "the memToReg control sig is " << control3->memToReg << "\n";
+    if(DEBUGG){cout << "the memToReg control sig is " << control3->memToReg << "\n";}
 
     }
     
     
-      //stage 2**********************************************************************/
+    //stage 2**********************************************************************/
     //prevent infinite jump instruciton
-    if(pc.to_ulong() >= 4){
+    if(firstInstDone){
       control2->setInst(newInst); //pass in new instruction from the IF to ID/RF,EXE pipeline
       if(!control2->jType()){
           /*/ pass in control signals from pipelines*/
           control2->ALUOpSig();
           control2->ALUSrcSig();
-        
           control2-> RegDstSig();
         
         
-          //decode the instruction                                              //below three signals just updated from the last clock cycle
-          myRF.ReadWrite(test(control2->Inst,25,21), test(control2->Inst,20,16), WrtReg, WrtData, control3-> WrtEnable);
+          //decode the instruction and WrtReg, whereas WrtData and WrtEnable comes from the last instruction in stage 3
           //perform operations (R-type => 15,11 I-type => 20, 16)
+          myRF.ReadWrite(test(control2->Inst,25,21), test(control2->Inst,20,16), WrtReg, WrtData, control3-> WrtEnable);
         
           //update WrtReg after writing the register values into RF files for the last instruction
           WrtReg = two_to_one_mux_5(control2->RegDst, test(control2->Inst, 15, 11), test(control2->Inst, 20, 16));
         
         
-        signExtendImm = signExtension((int)test(control2->Inst,15,0));
-        branchAdderResult = adder(pcAdderResult, signExtendImm << 2);
-        //jumpAddr = (test(pcAdderResult, 31,28) << 28) + (test(control2->Inst,25,0) << 2) ;
-        aluoperand2 = two_to_one_mux_32(control2->ALUSrc, signExtendImm, myRF.ReadData2); //signImm or rt
+          signExtendImm = signExtension((int)test(control2->Inst,15,0));
+          branchAdderResult = adder(pcAdderResult, signExtendImm << 2);
+          aluoperand2 = two_to_one_mux_32(control2->ALUSrc, signExtendImm, myRF.ReadData2); //signImm or rt
         
-        myALU.ALUresult = myALU.ALUOperation(control2->ALUOp, myRF.ReadData1, aluoperand2);
+          myALU.ALUresult = myALU.ALUOperation(control2->ALUOp, myRF.ReadData1, aluoperand2);
         
       } else {
         jumpAddr = (test(pcAdderResult, 31,28) << 28) + (test(control2->Inst,25,0) << 2) ;
@@ -489,43 +489,45 @@ int main()
     }
     
     control2-> nextPCSig(myALU.ALUresult);
-
+    secondInstDone = true;
+    
     //stage 1 (value of instruction)**********************************************************************/
     /*/ pass in control signals from pipelines*/
     newInst = myInsMem.ReadMemory(pc);
     if(test(newInst, 31, 26) == 0x3F){ break;}
     //debug
-    cout << "cycle" << i <<"  newInst:" << newInst <<"\n";
+    if(DEBUGG){cout << "cycle" << i <<"  newInst:" << newInst <<"\n";}
     //perfrom operations
     pcAdderResult = adder(pc, 4);
+    firstInstDone = true;
+    
     // At the end of each cycle, fill in the corresponding data into "dumpResults" function to output files.
     // The first dumped pc value should be 0.
-    dumpResults(pc, WrtReg, WrtData, control3->WrtEnable, WrMemAdd, WrMemData, control3->memWrite);
-    cout << "signExtenImm = " << signExtendImm << "\n";
-    printf("myALU opcode is %d \n", (int)control2->ALUOp.to_ulong());
-    cout <<" myALU source r1 is "<< myRF.ReadData1 <<"\n";
-    cout <<" myALU source r2 is "<< aluoperand2 << "\n";
-    cout <<" myALU result is "<< myALU.ALUresult << "\n";
-    cout <<" myALU source is" << control2->ALUSrc << "\n";
-    cout << "and" << " myMemeWrAddr is " << WrMemAdd << "\n";
-    cout << "and" <<" myMemWrData is " << WrMemData << "\n";
-    cout << "and" <<" myMemWrEnable is " << control3->memWrite << "\n";
-    cout << "and" <<" myWrReg is " << WrtReg << "\n";
-    cout << "and" << " my Wrtback data is" << WrtData << "\n";
-    cout << "and" << " control2->nextPC is " << control2->nextPC << "\n";
-    cout<< "\n";
     //dumpResults(bitset<32> pc, bitset<5> WrRFAdd, bitset<32> WrRFData, bitset<1> RFWrEn, bitset<32> WrMemAdd(address),bitset<32> WrMemData, bitset<1> WrMemEn)
-
+    if(DEBUGG){
+      cout << "signExtenImm = " << signExtendImm << "\n";
+      printf("myALU opcode is %d \n", (int)control2->ALUOp.to_ulong());
+      cout <<" myALU source r1 is "<< myRF.ReadData1 <<"\n";
+      cout <<" myALU source r2 is "<< aluoperand2 << "\n";
+      cout <<" myALU result is "<< myALU.ALUresult << "\n";
+      cout <<" myALU source is" << control2->ALUSrc << "\n";
+      cout << "and" << " myMemeWrAddr is " << WrMemAdd << "\n";
+      cout << "and" <<" myMemWrData is " << WrMemData << "\n";
+      cout << "and" <<" myMemWrEnable is " << control3->memWrite << "\n";
+      cout << "and" <<" myWrReg is " << WrtReg << "\n";
+      cout << "and" << " my Wrtback data is" << WrtData << "\n";
+      cout << "and" << " control2->nextPC is " << control2->nextPC << "\n";
+      printf( "and pv value is %d \n", (int)pc.to_ulong());
+      cout<< "\n";
+    }
     pc = three_to_one_mux_32(control2->nextPC, pcAdderResult, jumpAddr, branchAdderResult);
-    printf("and the pc is %d \n", (int)pc.to_ulong());
     i++;
   }
-  }
+  
   myRF.OutputRF(); // dump RF;
   myDataMem.OutputDataMem(); // dump data mem
-  testINSMem();
   return 0;
-  
+
 }
 
 //testing I/O of Register file
@@ -589,7 +591,6 @@ void testtest(){
   bitset<32> tempp = (00000001 << 1) + 00000001;
 std:cout << "test is fucking" << tempp;
 }
-
 
 void testSignExtension(){
   cout << signExtension(0x0001) << "\n";
