@@ -432,7 +432,7 @@ int main()
     /*The first stage (Stage1) of the pipeline performs instruction fetch (IF). The second stage (Stage2) performs instruction decode/RF read (ID/RF)
    and execute (EX). The third stage (Stage3) performs data memory load/store (MEM) and writes back to the RF (WB).*/
 
-    dumpResults(pc, WrtReg, WrtData, control3->WrtEnable, WrMemAdd, WrMemData, control3->memWrite);
+    dumpResults(pc, WrtReg, WrtData, control2->WrtEnable, WrMemAdd, WrMemData, control3->memWrite);
     /*stage 3***********************************************************************/
     if(secondInstDone){
       /*/ pass in control signals from pipelines*/ //actually passing instructions to create control signals
@@ -440,13 +440,13 @@ int main()
       control3-> memToRegSig();
       control3-> memReadSig();
       control3-> memWriteSig();
-      control3-> WrtEnableSig();
+      //control3-> WrtEnableSig();
       
 
     /*pass in values from pipelines*/
     WrMemAdd = myALU.ALUresult;
     WrMemData = myRF.ReadData2;
-    //control3-> updateWrMemAdd(WrMemAdd); //fix
+    //control3-> updateWrMemAdd(WrMemAdd);
     branchAddr = branchAdderResult;
 
     /*perform operations*/
@@ -471,7 +471,7 @@ int main()
         
           //decode the instruction and WrtReg, whereas WrtData and WrtEnable comes from the last instruction in stage 3
           //perform operations (R-type => 15,11 I-type => 20, 16)
-          myRF.ReadWrite(test(control2->Inst,25,21), test(control2->Inst,20,16), WrtReg, WrtData, control3-> WrtEnable);
+          myRF.ReadWrite(test(control2->Inst,25,21), test(control2->Inst,20,16), WrtReg, WrtData, control2-> WrtEnable);
         
           //update WrtReg after writing the register values into RF files for the last instruction
           WrtReg = two_to_one_mux_5(control2->RegDst, test(control2->Inst, 15, 11), test(control2->Inst, 20, 16));
@@ -489,6 +489,7 @@ int main()
     }
     
     control2-> nextPCSig(myALU.ALUresult);
+    control2-> WrtEnableSig();
     secondInstDone = true;
     
     //stage 1 (value of instruction)**********************************************************************/
