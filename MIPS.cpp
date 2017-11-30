@@ -12,7 +12,7 @@
 
 //by chihchien
 #define ADDIU 9
-#define DEBUGG 0
+#define DEBUGG 1
 
 using namespace std;
 #define MemSize 65536 // memory size, in reality, the memory size should be 2^32, but for this lab, for the space resaon, we keep it as this large number, but the memory is still 32-bit addressable.
@@ -42,7 +42,7 @@ void testMem();
 void testINSMem();
 
 //checkt multiple bits
-u_long test(bitset<32> in, int start, int end);
+unsigned long test(bitset<32> in, int start, int end);
 
 class RF
 {
@@ -147,7 +147,7 @@ class INSMem
           bitset<32> ReadMemory (bitset<32> ReadAddress) 
               {    
                 // implement by you. (Read the byte at the ReadAddress and the following three byte).
-                u_long instru = 0;
+                unsigned long instru = 0;
                 instru += IMem[ReadAddress.to_ulong()].to_ulong() << 24;
                 instru += IMem[ReadAddress.to_ulong()+1].to_ulong() << 16;
                 instru += IMem[ReadAddress.to_ulong()+2].to_ulong() << 8;
@@ -198,7 +198,7 @@ class DataMem
             
             //fetch data from dMem
             if(readmem == 0){return 0;}
-            u_long data = 0;
+            unsigned long data = 0;
             data += DMem[Address.to_ulong()].to_ulong() << 24;
             data += DMem[Address.to_ulong()+1].to_ulong() << 16;
             data += DMem[Address.to_ulong()+2].to_ulong() << 8;
@@ -382,9 +382,9 @@ bitset<32> adder(bitset<32> first, bitset<32> second){
   return first.to_ulong() + second.to_ulong();
 }
 
-u_long test(bitset<32> in, int start, int end)
+unsigned long test(bitset<32> in, int start, int end)
 {
-  u_long res = 0;
+  unsigned long res = 0;
   for (int i=start; i>=end; i--){
     res = (res << 1) + in.test(i);
   }
@@ -417,6 +417,7 @@ int main()
   bitset<32> branchAdderResult;
   bitset<32> jumpAddr;
   bitset<32> aluoperand2;
+  bool isJumpping = false;
 
   //stage 1
   bitset<32> pcAdderResult;
@@ -434,7 +435,7 @@ int main()
 
     dumpResults(pc, WrtReg, WrtData, control2->WrtEnable, WrMemAdd, WrMemData, control3->memWrite);
     /*stage 3***********************************************************************/
-    if(secondInstDone){
+    //if(secondInstDone & !control3->jType()){
       /*/ pass in control signals from pipelines*/ //actually passing instructions to create control signals
       control3->setInst(control2->Inst);
       control3-> memToRegSig();
@@ -455,37 +456,42 @@ int main()
     WrtData = two_to_one_mux_32(control3->memToReg, WrMemAdd, myDataMem.readdata);
     if(DEBUGG){cout << "the memToReg control sig is " << control3->memToReg << "\n";}
 
-    }
+    //}
     
     
     //stage 2**********************************************************************/
     //prevent infinite jump instruciton
     if(firstInstDone){
       control2->setInst(newInst); //pass in new instruction from the IF to ID/RF,EXE pipeline
-      if(!control2->jType()){
-          /*/ pass in control signals from pipelines*/
-          control2->ALUOpSig();
-          control2->ALUSrcSig();
-          control2-> RegDstSig();
-        
-        
-          //decode the instruction and WrtReg, whereas WrtData and WrtEnable comes from the last instruction in stage 3
-          //perform operations (R-type => 15,11 I-type => 20, 16)
-          myRF.ReadWrite(test(control2->Inst,25,21), test(control2->Inst,20,16), WrtReg, WrtData, control2-> WrtEnable);
-        
-          //update WrtReg after writing the register values into RF files for the last instruction
-          WrtReg = two_to_one_mux_5(control2->RegDst, test(control2->Inst, 15, 11), test(control2->Inst, 20, 16));
-        
-        
-          signExtendImm = signExtension((int)test(control2->Inst,15,0));
-          branchAdderResult = adder(pcAdderResult, signExtendImm << 2);
-          aluoperand2 = two_to_one_mux_32(control2->ALUSrc, signExtendImm, myRF.ReadData2); //signImm or rt
-        
-          myALU.ALUresult = myALU.ALUOperation(control2->ALUOp, myRF.ReadData1, aluoperand2);
-        
-      } else {
-        jumpAddr = (test(pcAdderResult, 31,28) << 28) + (test(control2->Inst,25,0) << 2) ;
-      }
+      //if(!control3->jType()){
+        if(!control2->jType()){
+            /*/ pass in control signals from pipelines*/
+            control2->ALUOpSig();
+            control2->ALUSrcSig();
+            control2-> RegDstSig();
+          
+          
+            //decode the instruction and WrtReg, whereas WrtData and WrtEnable comes from the last instruction in stage 3
+            //perform operations (R-type => 15,11 I-type => 20, 16)
+            myRF.ReadWrite(test(control2->Inst,25,21), test(control2->Inst,20,16), WrtReg, WrtData, control2-> WrtEnable);
+          
+            //update WrtReg after writing the register values into RF files for the last instruction
+            WrtReg = two_to_one_mux_5(control2->RegDst, test(control2->Inst, 15, 11), test(control2->Inst, 20, 16));
+          
+          
+            signExtendImm = signExtension((int)test(control2->Inst,15,0));
+            branchAdderResult = adder(pcAdderResult, signExtendImm << 2);
+            aluoperand2 = two_to_one_mux_32(control2->ALUSrc, signExtendImm, myRF.ReadData2); //signImm or rt
+          
+            myALU.ALUresult = myALU.ALUOperation(control2->ALUOp, myRF.ReadData1, aluoperand2);
+          
+        } else if(isJumpping) {
+          isJumpping = false;
+        }else {
+          jumpAddr = (test(pcAdderResult, 31,28) << 28) + (test(control2->Inst,25,0) << 2) ;
+          isJumpping = true;
+        }
+      //}
     }
     
     control2-> nextPCSig(myALU.ALUresult);
